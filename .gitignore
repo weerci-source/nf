@@ -1,0 +1,23 @@
+# Сборка
+build/
+build-*/
+_install/
+compile_commands.json
+.cache/
+
+# Артефакты
+*.o
+*.so
+*.a
+*.far-plug-wide
+*.far-plug-mb
+
+# Внешние SDK
+external/far2l/
+
+# IDE
+.vscode/*.log
+.idea/
+
+# OS
+.DS_Store

@@ -1,0 +1,106 @@
+{
+    "version": "2.0.0",
+    "tasks": [
+        {
+            "label": "nf: configure (Debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S", ".",
+                "-B", "build",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Debug",
+                "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
+                "-DCMAKE_CXX_COMPILER=clang++"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "nf: build (Debug)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build"],
+            "dependsOn": "nf: configure (Debug)",
+            "problemMatcher": ["$gcc"],
+            "group": { "kind": "build", "isDefault": true }
+        },
+        {
+            "label": "nf: build (Debug) + test",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build", "--target", "test"],
+            "dependsOn": "nf: build (Debug)",
+            "problemMatcher": ["$gcc"],
+            "group": "test"
+        },
+        {
+            "label": "nf: configure (Release)",
+            "type": "shell",
+            "command": "cmake",
+            "args": [
+                "-S", ".",
+                "-B", "build-release",
+                "-G", "Ninja",
+                "-DCMAKE_BUILD_TYPE=Release",
+                "-DNF_BUILD_TESTS=OFF",
+                "-DCMAKE_CXX_COMPILER=clang++"
+            ],
+            "problemMatcher": []
+        },
+        {
+            "label": "nf: build (Release)",
+            "type": "shell",
+            "command": "cmake",
+            "args": ["--build", "build-release"],
+            "dependsOn": "nf: configure (Release)",
+            "problemMatcher": ["$gcc"],
+            "group": "build"
+        },
+        {
+            "label": "nf: install (Release)",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-c",
+                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build-release/src/nf.far-plug-wide /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide"
+            ],
+            "dependsOn": "nf: build (Release)",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            }
+        },
+        {
+            "label": "nf: build (Release) + install",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-c",
+                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build-release/src/nf.far-plug-wide /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide"
+            ],
+            "dependsOn": "nf: build (Release)",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            },
+            "group": "build"
+        },
+        {
+            "label": "nf: run far2l",
+            "type": "shell",
+            "command": "far2l",
+            "args": [],
+            "dependsOn": "nf: build (Debug)",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            }
+        }
+    ]
+}
