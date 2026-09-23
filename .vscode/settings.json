@@ -1,0 +1,8 @@
+{
+    "files.exclude": {
+        "**/build": true,
+        "**/build-debug": true,
+        "**/build-release": true,
+        "**/far2l": true
+    },
+}
