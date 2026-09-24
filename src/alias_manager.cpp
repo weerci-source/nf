@@ -29,6 +29,28 @@ void_err validateName(const std::wstring& name) {
     return {};
 }
 
+std::wstring normalizeAliasName(const std::wstring& s) {
+    std::wstring out = s;
+    for (wchar_t& c : out) {
+        // ASCII A-Z -> a-z
+        if (c >= L'A' && c <= L'Z') {
+            c += (L'a' - L'A');
+            continue;
+        }
+        // Кириллица А-Я (U+0410..U+042F) -> а-я (U+0430..U+044F)
+        if (c >= 0x0410 && c <= 0x042F) {
+            c += 0x20;
+            continue;
+        }
+        // Ё (U+0401) -> ё (U+0451) — вне основного блока
+        if (c == 0x0401) {
+            c = 0x0451;
+            continue;
+        }
+    }
+    return out;
+}
+
 } // namespace
 
 AliasManager::AliasManager(std::filesystem::path storageFile)
@@ -60,7 +82,7 @@ void_err AliasManager::load() {
             continue; // битая строка — пропускаем
         }
         Alias a;
-        a.name = fromUtf8(line.substr(0, sep));
+        a.name = normalizeAliasName(fromUtf8(line.substr(0, sep)));
         a.path = fromUtf8(line.substr(sep + 1));
         aliases_.push_back(std::move(a));
     }
@@ -87,8 +109,9 @@ void_err AliasManager::save() const {
 }
 
 t_err<const Alias*> AliasManager::find(const std::wstring& name) const {
+    const std::wstring needle = normalizeAliasName(name);
     for (const auto& a : aliases_) {
-        if (a.name == name) {
+        if (a.name == needle) {
             return &a;
         }
     }
@@ -96,9 +119,10 @@ t_err<const Alias*> AliasManager::find(const std::wstring& name) const {
 }
 
 std::vector<const Alias*> AliasManager::findByPrefix(const std::wstring& prefix) const {
+    const std::wstring needle = normalizeAliasName(prefix);
     std::vector<const Alias*> result;
     for (const auto& a : aliases_) {
-        if (a.name.size() >= prefix.size() && a.name.compare(0, prefix.size(), prefix) == 0) {
+        if (a.name.size() >= needle.size() && a.name.compare(0, needle.size(), needle) == 0) {
             result.push_back(&a);
         }
     }
@@ -109,31 +133,34 @@ void_err AliasManager::add(const std::wstring& name, const std::wstring& path) {
     if (auto v = validateName(name); !v) {
         return v;
     }
-    if (auto f = find(name); f) {
+    const std::wstring key = normalizeAliasName(name);
+    if (auto f = find(key); f) {
         return std::unexpected(
             Error::make(MsgID::AliasAlreadyExists, ErrorSeverity::Error, {name}));
     }
-    aliases_.push_back({name, path});
+    aliases_.push_back({key, path});
     return save();
 }
 
 void_err AliasManager::upsert(const std::wstring& name, const std::wstring& path) {
-    if (auto v = validateName(name); !v) {
+    const std::wstring key = normalizeAliasName(name);
+    if (auto v = validateName(key); !v) {
         return v;
     }
     for (auto& a : aliases_) {
-        if (a.name == name) {
+        if (a.name == key) {
             a.path = path;
             return save();
         }
     }
-    aliases_.push_back({name, path});
+    aliases_.push_back({key, path});
     return save();
 }
 
 void_err AliasManager::remove(const std::wstring& name) {
+    const std::wstring key = normalizeAliasName(name);
     auto it = std::remove_if(aliases_.begin(), aliases_.end(),
-                             [&](const Alias& a) { return a.name == name; });
+                             [&](const Alias& a) { return a.name == key; });
     if (it == aliases_.end()) {
         return std::unexpected(Error::make(MsgID::AliasNotFound, ErrorSeverity::Error, {name}));
     }
