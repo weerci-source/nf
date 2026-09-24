@@ -1,0 +1,9 @@
+Checks: 'readability-braces-around-statements,readability-identifier-length,readability-implicit-bool-conversion'
+
+CheckOptions:
+  - key: readability-identifier-length.MinimumParameterNameLength
+    value: '1'
+  - key: readability-identifier-length.MinimumVariableNameLength
+    value: '1'
+  - key: readability-implicit-bool-conversion.AllowPointerConditions
+    value: 'true'

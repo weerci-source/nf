@@ -1,6 +1,11 @@
 add_library(nf SHARED
-        Plugin.cpp
         main.cpp
+        plugin.cpp
+        alias_manager.cpp
+        plugin_context.cpp
+        error_logger.cpp
+        error.cpp
+        paths.cpp
 )
 
 target_include_directories(nf SYSTEM PRIVATE
@@ -8,10 +13,9 @@ target_include_directories(nf SYSTEM PRIVATE
         "${FAR2L_WINPORT_DIR}"
 )
 target_include_directories(nf PRIVATE
-        "${CMAKE_SOURCE_DIR}/include"
+        "${CMAKE_CURRENT_SOURCE_DIR}"
 )
 
-# Для far2l плагины обычно собираются с видимыми символами.
 target_compile_options(nf PRIVATE -fvisibility=default)
 
 set_target_properties(nf PROPERTIES
@@ -20,3 +24,9 @@ set_target_properties(nf PROPERTIES
         SUFFIX ".far-plug-wide"
 )
 
+add_custom_command(TARGET nf POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/configs"
+        "$<TARGET_FILE_DIR:nf>"
+        COMMENT "Copying nf language files next to the plugin binary"
+)

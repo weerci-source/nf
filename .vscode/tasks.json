@@ -6,9 +6,12 @@
             "type": "shell",
             "command": "cmake",
             "args": [
-                "-S", ".",
-                "-B", "build",
-                "-G", "Ninja",
+                "-S",
+                ".",
+                "-B",
+                "build",
+                "-G",
+                "Ninja",
                 "-DCMAKE_BUILD_TYPE=Debug",
                 "-DCMAKE_EXPORT_COMPILE_COMMANDS=ON",
                 "-DCMAKE_CXX_COMPILER=clang++"
@@ -19,28 +22,62 @@
             "label": "nf: build (Debug)",
             "type": "shell",
             "command": "cmake",
-            "args": ["--build", "build"],
+            "args": [
+                "--build",
+                "build"
+            ],
             "dependsOn": "nf: configure (Debug)",
-            "problemMatcher": ["$gcc"],
-            "group": { "kind": "build", "isDefault": true }
+            "problemMatcher": [
+                "$gcc"
+            ],
+            "group": {
+                "kind": "build",
+                "isDefault": true
+            }
         },
         {
             "label": "nf: build (Debug) + test",
             "type": "shell",
             "command": "cmake",
-            "args": ["--build", "build", "--target", "test"],
+            "args": [
+                "--build",
+                "build",
+                "--target",
+                "test"
+            ],
             "dependsOn": "nf: build (Debug)",
-            "problemMatcher": ["$gcc"],
+            "problemMatcher": [
+                "$gcc"
+            ],
             "group": "test"
+        },
+        {
+            "label": "nf: install (Debug)",
+            "type": "shell",
+            "command": "bash",
+            "args": [
+                "-c",
+                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build/src/nf.far-plug-wide build/src/nf*.lng /usr/lib/far2l/Plugins/nf/plug/; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/*"
+            ],
+            "dependsOn": "nf: build (Debug)",
+            "problemMatcher": [],
+            "presentation": {
+                "reveal": "always",
+                "panel": "shared",
+                "focus": true
+            }
         },
         {
             "label": "nf: configure (Release)",
             "type": "shell",
             "command": "cmake",
             "args": [
-                "-S", ".",
-                "-B", "build-release",
-                "-G", "Ninja",
+                "-S",
+                ".",
+                "-B",
+                "build-release",
+                "-G",
+                "Ninja",
                 "-DCMAKE_BUILD_TYPE=Release",
                 "-DNF_BUILD_TESTS=OFF",
                 "-DCMAKE_CXX_COMPILER=clang++"
@@ -51,9 +88,14 @@
             "label": "nf: build (Release)",
             "type": "shell",
             "command": "cmake",
-            "args": ["--build", "build-release"],
+            "args": [
+                "--build",
+                "build-release"
+            ],
             "dependsOn": "nf: configure (Release)",
-            "problemMatcher": ["$gcc"],
+            "problemMatcher": [
+                "$gcc"
+            ],
             "group": "build"
         },
         {
@@ -62,7 +104,7 @@
             "command": "bash",
             "args": [
                 "-c",
-                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build-release/src/nf.far-plug-wide /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide"
+                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build-release/src/nf.far-plug-wide build-release/src/nf*.lng /usr/lib/far2l/Plugins/nf/plug/; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/*"
             ],
             "dependsOn": "nf: build (Release)",
             "problemMatcher": [],
@@ -78,7 +120,7 @@
             "command": "bash",
             "args": [
                 "-c",
-                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build-release/src/nf.far-plug-wide /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/nf.far-plug-wide"
+                "set -e; sudo mkdir -p /usr/lib/far2l/Plugins/nf/plug; sudo cp -v build-release/src/nf.far-plug-wide build-release/src/nf*.lng /usr/lib/far2l/Plugins/nf/plug/; sudo chmod 644 /usr/lib/far2l/Plugins/nf/plug/*"
             ],
             "dependsOn": "nf: build (Release)",
             "problemMatcher": [],

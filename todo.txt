@@ -1,0 +1,23 @@
+Следующие шаги
+
+    Сортировка алиасов на панели (std::sort по имени в openAliasPanel).
+
+    Перечитывать aliases.txt при каждой команде (aliasMgr_->load() в начале HandleCommand).
+
+    Проверка существования пути при cd:name — иначе молча ничего не происходит.
+
+    Hotkeys на панели: Ins — создать алиас для текущей папки активной панели, F4 — редактировать путь, Ctrl+R — перечитать.
+
+Средне 
+
+    ConfigureW + PluginConfigStrings — F9-настройки через Alt+Shift+F9. Даёт UI для режимов логгера, сортировки, подтверждений.
+
+    KeyFileHelper для настроек в ~/.config/far2l/plugins/nf/config.ini.
+
+Долго (для качества):
+
+    Тесты AliasManager через Catch2 — он не зависит от far2l SDK.
+
+    Импорт/экспорт (cd:!export / cd:!import).
+
+    Ротация лога.

@@ -5,4 +5,8 @@
         "**/build-release": true,
         "**/far2l": true
     },
+    "clangd.arguments": [
+        "--clang-tidy",                         // ← ВКЛЮЧАЕТ ПОДДЕРЖКУ .clang-tidy
+        "--clang-tidy-checks=*"                 // Разрешаем обрабатывать все сконфигурированные проверки
+    ]
 }

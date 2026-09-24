@@ -1,0 +1,1243 @@
+// configs/nfRus.lng
+.Language=Russian,Russian (Русский)
+
+"nf — псевдонимы директорий"
+"nf — псевдонимы"
+"Псевдоним '{0}' -> {1}"
+"Удаление псевдонима"
+"Удалить псевдоним '{0}'?"
+"nf — ошибка"
+"Псевдоним не найден: '{0}'"
+"Псевдоним уже существует: '{0}'"
+"Имя псевдонима не должно быть пустым"
+"Имя псевдонима не должно содержать ':'"
+"Не удалось прочитать файл псевдонимов: {0}"
+"Не удалось записать файл псевдонимов: {0}"
+"Не удалось определить текущий каталог панели"
+"Нет псевдонимов, соответствующих: '{0}'"
+"nf — подходящие псевдонимы"
+"Выберите псевдоним"
+"&ОК"
+"&Отмена"
+
+// configs/nfEng.lng
+.Language=English,English
+
+"nf — directory aliases"
+"nf — aliases"
+"Alias '{0}' -> {1}"
+"Delete alias"
+"Delete alias '{0}'?"
+"nf — error"
+"Alias not found: '{0}'"
+"Alias already exists: '{0}'"
+"Alias name must not be empty"
+"Alias name must not contain ':'"
+"Cannot read aliases file: {0}"
+"Cannot write aliases file: {0}"
+"Cannot determine current panel directory"
+"No aliases match: '{0}'"
+"nf — matching aliases"
+"Select an alias"
+"&OK"
+"&Cancel"
+
+// src/alias.h
+#pragma once
+#include <string>
+
+namespace nf {
+
+struct Alias {
+    std::wstring name;
+    std::wstring path;
+};
+
+} // namespace nf
+
+// src/paths.h
+#pragma once
+#include <filesystem>
+
+namespace nf {
+
+std::filesystem::path configDir();     // ~/.config/nf или $XDG_CONFIG_HOME/nf
+std::filesystem::path aliasesPath();   // configDir() / "aliases.txt"
+std::filesystem::path logPath();       // configDir() / "nf.log"
+
+}  // namespace nf
+
+// src/plugin_context.h
+#pragma once
+#include <farplug-wide.h>
+
+#include <string>
+#include <vector>
+
+#include "msg_ids.h"
+
+namespace nf {
+
+class PluginContext {
+  public:
+    // Инициализация из SetStartupInfoW. Вызывается один раз до всего остального.
+    static void Init(const PluginStartupInfo& info);
+
+    // Единая точка доступа.
+    static PluginContext& Instance();
+
+    [[nodiscard]] const PluginStartupInfo& info() const { return info_; }
+    [[nodiscard]] const FarStandardFunctions& fsf() const { return fsf_; }
+    [[nodiscard]] bool initialized() const { return initialized_; }
+
+    // Строка из текущего .lng-файла (язык выбирает far2l).
+    [[nodiscard]] const wchar_t* GetMsg(MsgID id) const;
+
+    // Строка с подставленными {0}, {1}, ... .
+    [[nodiscard]] std::wstring FormatMsg(MsgID id,
+                                         const std::vector<std::wstring>& args = {}) const;
+
+  private:
+    PluginContext() = default;
+
+    PluginStartupInfo info_{};
+    FarStandardFunctions fsf_{}; // локальная копия; info_.FSF указывает сюда
+    bool initialized_ = false;
+};
+
+// Удобный синтаксис для мест, где полный путь PluginContext::Instance() избыточен.
+const wchar_t* GetMsg(MsgID id);
+
+std::wstring FormatMsg(MsgID id, const std::vector<std::wstring>& args = {});
+
+} // namespace nf
+
+// src/error_logger.h
+#pragma once
+#include <filesystem>
+#include <fstream>
+#include <mutex>
+
+#include "error.h"
+
+namespace nf {
+
+enum class LogOutput : std::uint8_t {
+    None = 0,
+    File = 1,
+    Message = 2,
+    Both = File | Message,
+};
+
+// Разрешает побитовые операции над LogOutput.
+inline LogOutput operator|(LogOutput a, LogOutput b) {
+    return static_cast<LogOutput>(static_cast<int>(a) | static_cast<int>(b));
+}
+inline bool has(LogOutput mode, LogOutput flag) {
+    return (static_cast<int>(mode) & static_cast<int>(flag)) != 0;
+}
+
+class ErrorLogger {
+  public:
+    // Вызывается один раз из SetStartupInfoW.
+    static void init(const std::filesystem::path& logFile, LogOutput output = LogOutput::Both,
+                     ErrorSeverity minSeverity = ErrorSeverity::Error);
+
+    // Единая точка обработки ошибки.
+    // Фильтрует по minSeverity, затем выводит согласно output.
+    static void log(const Error& error);
+
+    // Точечные выводы (без фильтрации, для ad-hoc случаев).
+    static void writeToFile(const Error& error);
+    static void showDialog(const Error& error);
+
+    // Настройки во время работы.
+    static void setOutput(LogOutput output);
+    static void setMinSeverity(ErrorSeverity severity);
+    static LogOutput output();
+    static ErrorSeverity minSeverity();
+
+  private:
+    static std::mutex mtx_;
+    static std::ofstream file_;
+    static std::filesystem::path logPath_;
+    static LogOutput output_;
+    static ErrorSeverity minSeverity_;
+
+    static void ensureFileOpenLocked();
+    static std::string formatForFile(const Error& error);
+    static const char* severityTag(ErrorSeverity sev);
+    static std::string timestamp();
+    static std::string toUtf8(const std::wstring& w);
+};
+
+} // namespace nf
+
+// src/alias_manager.cpp
+#include "alias_manager.h"
+
+#include <algorithm>
+#include <codecvt>
+#include <fstream>
+#include <locale>
+
+namespace nf {
+
+namespace {
+
+std::string toUtf8(const std::wstring& w) {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+    return conv.to_bytes(w);
+}
+
+std::wstring fromUtf8(const std::string& s) {
+    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
+    return conv.from_bytes(s);
+}
+
+void_err validateName(const std::wstring& name) {
+    if (name.empty()) {
+        return std::unexpected(Error::make(MsgID::InvalidAliasNameEmpty));
+    }
+    if (name.find(L':') != std::wstring::npos) {
+        return std::unexpected(Error::make(MsgID::InvalidAliasNameColon));
+    }
+    return {};
+}
+
+} // namespace
+
+AliasManager::AliasManager(std::filesystem::path storageFile)
+    : storageFile_(std::move(storageFile)) {}
+
+void_err AliasManager::load() {
+    aliases_.clear();
+    std::error_code ec;
+    if (!std::filesystem::exists(storageFile_, ec)) {
+        return {}; // отсутствие файла — не ошибка
+    }
+
+    std::ifstream in(storageFile_, std::ios::binary);
+    if (!in) {
+        return std::unexpected(
+            Error::make(MsgID::StorageReadFailed, ErrorSeverity::Error, {storageFile_.wstring()}));
+    }
+
+    std::string line;
+    while (std::getline(in, line)) {
+        if (!line.empty() && line.back() == '\r') {
+            line.pop_back();
+        }
+        if (line.empty() || line[0] == '#') {
+            continue;
+        }
+        const auto sep = line.find('\t');
+        if (sep == std::string::npos) {
+            continue; // битая строка — пропускаем
+        }
+        Alias a;
+        a.name = fromUtf8(line.substr(0, sep));
+        a.path = fromUtf8(line.substr(sep + 1));
+        aliases_.push_back(std::move(a));
+    }
+    return {};
+}
+
+void_err AliasManager::save() const {
+    std::error_code ec;
+    if (!storageFile_.parent_path().empty()) {
+        std::filesystem::create_directories(storageFile_.parent_path(), ec);
+    }
+
+    std::ofstream out(storageFile_, std::ios::binary | std::ios::trunc);
+    if (!out) {
+        return std::unexpected(
+            Error::make(MsgID::StorageWriteFailed, ErrorSeverity::Error, {storageFile_.wstring()}));
+    }
+
+    out << "# nf aliases: name<TAB>path\n";
+    for (const auto& a : aliases_) {
+        out << toUtf8(a.name) << '\t' << toUtf8(a.path) << '\n';
+    }
+    return {};
+}
+
+t_err<const Alias*> AliasManager::find(const std::wstring& name) const {
+    for (const auto& a : aliases_) {
+        if (a.name == name) {
+            return &a;
+        }
+    }
+    return std::unexpected(Error::make(MsgID::AliasNotFound, ErrorSeverity::Error, {name}));
+}
+
+std::vector<const Alias*> AliasManager::findByPrefix(const std::wstring& prefix) const {
+    std::vector<const Alias*> result;
+    for (const auto& a : aliases_) {
+        if (a.name.size() >= prefix.size() && a.name.compare(0, prefix.size(), prefix) == 0) {
+            result.push_back(&a);
+        }
+    }
+    return result;
+}
+
+void_err AliasManager::add(const std::wstring& name, const std::wstring& path) {
+    if (auto v = validateName(name); !v) {
+        return v;
+    }
+    if (auto f = find(name); f) {
+        return std::unexpected(
+            Error::make(MsgID::AliasAlreadyExists, ErrorSeverity::Error, {name}));
+    }
+    aliases_.push_back({name, path});
+    return save();
+}
+
+void_err AliasManager::upsert(const std::wstring& name, const std::wstring& path) {
+    if (auto v = validateName(name); !v) {
+        return v;
+    }
+    for (auto& a : aliases_) {
+        if (a.name == name) {
+            a.path = path;
+            return save();
+        }
+    }
+    aliases_.push_back({name, path});
+    return save();
+}
+
+void_err AliasManager::remove(const std::wstring& name) {
+    auto it = std::remove_if(aliases_.begin(), aliases_.end(),
+                             [&](const Alias& a) { return a.name == name; });
+    if (it == aliases_.end()) {
+        return std::unexpected(Error::make(MsgID::AliasNotFound, ErrorSeverity::Error, {name}));
+    }
+    aliases_.erase(it, aliases_.end());
+    return save();
+}
+
+} // namespace nf
+
+// src/panel_data.h
+#pragma once
+#include <string>
+#include <vector>
+
+namespace nf {
+
+struct PanelData {
+    std::wstring hostFile = L"nf-aliases";
+    std::wstring title;
+    std::vector<std::wstring> names;
+    std::vector<std::wstring> paths;
+};
+
+} // namespace nf
+
+// src/msg_ids.h
+#pragma once
+
+#include <cstdint>
+#include <expected>
+
+namespace nf {
+
+enum class MsgID : std::uint8_t {
+    PluginTitle = 0,           // "nf — directory aliases"
+    AliasPanelTitle,           // "nf — aliases"
+    AliasCreated,              // "Alias '{0}' -> {1}"
+    DeleteAliasTitle,          // "Delete alias"
+    DeleteAliasQuestion,       // "Delete alias '{0}'?"
+    ErrorTitle,                // "nf — error"
+    AliasNotFound,             // "Alias not found: '{0}'"
+    AliasAlreadyExists,        // "Alias already exists: '{0}'"
+    InvalidAliasNameEmpty,     // "Alias name must not be empty"
+    InvalidAliasNameColon,     // "Alias name must not contain ':'"
+    StorageReadFailed,         // "Cannot read aliases file: {0}"
+    StorageWriteFailed,        // "Cannot write aliases file: {0}"
+    CannotDetermineCurrentDir, // "Cannot determine current panel directory"
+    NoMatchingAliases,         // "No aliases match: '{0}'"
+    MatchMenuTitle,            // "nf — matching aliases"
+    MatchMenuFooter,           // "Select an alias"
+    Ok,                        // "&OK"
+    Cancel,                    // "&Cancel"
+};
+
+} // namespace nf
+
+// src/paths.cpp
+#include "paths.h"
+
+#include <cstdlib>
+
+namespace nf {
+
+std::filesystem::path configDir() {
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    if (xdg != nullptr && *xdg != '\0') {
+        return std::filesystem::path(xdg) / "nf";
+    }
+    const char* home = std::getenv("HOME");
+    if (home != nullptr && *home != '\0') {
+        return std::filesystem::path(home) / ".config" / "nf";
+    }
+    return std::filesystem::path(".") / "nf";
+}
+
+std::filesystem::path aliasesPath() {
+    return configDir() / "aliases.txt";
+}
+std::filesystem::path logPath() {
+    return configDir() / "nf.log";
+}
+
+} // namespace nf
+
+// src/error.cpp
+#include "error.h"
+
+namespace nf {
+
+// GetMsg объявлен в PluginContext.h, но чтобы error.cpp не тянул far2l
+// SDK в тесты — оставляем только forward declaration.
+const wchar_t* GetMsg(MsgID id);
+
+std::wstring Error::localizedMessage() const {
+    std::wstring msg = GetMsg(msg_id);
+    for (size_t i = 0; i < args.size(); ++i) {
+        const std::wstring placeholder = L"{" + std::to_wstring(i) + L"}";
+        size_t pos = 0;
+        while ((pos = msg.find(placeholder, pos)) != std::wstring::npos) {
+            msg.replace(pos, placeholder.length(), args[i]);
+            pos += args[i].length();
+        }
+    }
+    return msg.empty() ? L"<untranslated>" : msg;
+}
+
+std::wstring Error::stackTraceToString() const {
+    if (file == nullptr || *file == '\0') {
+        return {};
+    }
+    std::string s =
+        std::string(file) + ":" + std::to_string(line) + " in " + (function ? function : "?");
+    return std::wstring(s.begin(), s.end());
+}
+
+} // namespace nf
+
+// src/CMakeLists.txt
+add_library(nf SHARED
+        main.cpp
+        plugin.cpp
+        alias_manager.cpp
+        plugin_context.cpp
+        error_logger.cpp
+        error.cpp
+        paths.cpp
+)
+
+target_include_directories(nf SYSTEM PRIVATE
+        "${FAR2L_SDK_DIR}"
+        "${FAR2L_WINPORT_DIR}"
+)
+target_include_directories(nf PRIVATE
+        "${CMAKE_CURRENT_SOURCE_DIR}"
+)
+
+target_compile_options(nf PRIVATE -fvisibility=default)
+
+set_target_properties(nf PROPERTIES
+        PREFIX ""
+        OUTPUT_NAME "nf"
+        SUFFIX ".far-plug-wide"
+)
+
+add_custom_command(TARGET nf POST_BUILD
+        COMMAND ${CMAKE_COMMAND} -E copy_directory
+        "${CMAKE_SOURCE_DIR}/configs"
+        "$<TARGET_FILE_DIR:nf>"
+        COMMENT "Copying nf language files next to the plugin binary"
+)
+
+// src/plugin.h
+#pragma once
+#include <farplug-wide.h>
+
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "alias_manager.h"
+#include "error.h"
+#include "msg_ids.h"
+
+namespace nf {
+
+class Plugin {
+  public:
+    Plugin(); // без аргументов — контекст уже инициализирован
+
+    HANDLE HandleCommand(const std::wstring& rest);
+
+    AliasManager& aliases() { return *aliasMgr_; }
+
+    void showError(const Error& error) const;
+    void showInfo(MsgID title, MsgID body, const std::vector<std::wstring>& args = {}) const;
+    [[nodiscard]] bool confirm(MsgID title, MsgID body,
+                               const std::vector<std::wstring>& args = {}) const;
+    void navigateTo(const std::wstring& path) const;
+
+    [[nodiscard]] HANDLE openAliasPanel(std::wstring title, std::vector<std::wstring> names,
+                                        std::vector<std::wstring> paths) const;
+
+  private:
+    std::unique_ptr<AliasManager> aliasMgr_;
+
+    void handleCreate(const std::wstring& name);
+    void handleNavigate(const std::wstring& name);
+    void handlePrefixSearch(const std::wstring& prefix);
+};
+
+} // namespace nf
+
+// src/plugin.cpp
+#include "plugin.h"
+
+#include <cstdlib>
+#include <filesystem>
+
+#include "error_logger.h"
+#include "panel_data.h"
+#include "plugin_context.h"
+
+namespace nf {
+
+namespace {
+
+constexpr std::size_t kPanelDirBufSize = 4096;
+
+std::filesystem::path storagePath() {
+    const char* xdg = std::getenv("XDG_CONFIG_HOME");
+    std::filesystem::path base;
+    if (xdg != nullptr && *xdg != '\0') {
+        base = xdg;
+    } else {
+        const char* home = std::getenv("HOME");
+        base = (home != nullptr) ? std::filesystem::path(home) / ".config"
+                                 : std::filesystem::path(".");
+    }
+    return base / "nf" / "aliases.txt";
+}
+
+std::wstring currentPanelDir() {
+    const auto& psi = PluginContext::Instance().info();
+    wchar_t buf[kPanelDirBufSize] = {0};
+    psi.Control(PANEL_ACTIVE, FCTL_GETPANELDIR, static_cast<int>(kPanelDirBufSize),
+                reinterpret_cast<LONG_PTR>(buf));
+    return std::wstring(buf);
+}
+
+inline const PluginStartupInfo& Psi() {
+    return PluginContext::Instance().info();
+}
+
+} // namespace
+
+Plugin::Plugin() : aliasMgr_(std::make_unique<AliasManager>(storagePath())) {
+    if (auto r = aliasMgr_->load(); !r) {
+        showError(r.error());
+    }
+}
+
+void Plugin::showInfo(MsgID title, MsgID body, const std::vector<std::wstring>& args) const {
+    const std::wstring t = GetMsg(title);
+    const std::wstring b = FormatMsg(body, args);
+    const wchar_t* items[] = {t.c_str(), b.c_str()};
+    Psi().Message(Psi().ModuleNumber, FMSG_MB_OK, nullptr, items, 2, 0);
+}
+
+void Plugin::showError(const Error& error) const {
+    std::wstring body = error.localizedMessage();
+    if (error.severity == ErrorSeverity::Critical) {
+        body += L"\n\n";
+        body += error.stackTraceToString();
+    }
+    const wchar_t* items[] = {GetMsg(MsgID::ErrorTitle), body.c_str()};
+    Psi().Message(Psi().ModuleNumber, FMSG_MB_OK, nullptr, items, 2, 0);
+}
+
+bool Plugin::confirm(MsgID title, MsgID body, const std::vector<std::wstring>& args) const {
+    const std::wstring t = GetMsg(title);
+    const std::wstring b = FormatMsg(body, args);
+    const wchar_t* items[] = {t.c_str(), b.c_str()};
+    const int r = Psi().Message(Psi().ModuleNumber, FMSG_MB_YESNO, nullptr, items, 2, 0);
+    return r == 0;
+}
+
+void Plugin::navigateTo(const std::wstring& path) const {
+    Psi().Control(PANEL_ACTIVE, FCTL_SETPANELDIR, 0, reinterpret_cast<LONG_PTR>(path.c_str()));
+
+    PanelRedrawInfo pri{};
+    Psi().Control(PANEL_ACTIVE, FCTL_REDRAWPANEL, 0, reinterpret_cast<LONG_PTR>(&pri));
+}
+
+HANDLE Plugin::openAliasPanel(std::wstring title, std::vector<std::wstring> names,
+                              std::vector<std::wstring> paths) const {
+    auto* data = new PanelData{};
+    data->title = std::move(title);
+    data->names = std::move(names);
+    data->paths = std::move(paths);
+    return reinterpret_cast<HANDLE>(data);
+}
+
+void Plugin::handleCreate(const std::wstring& name) {
+    const std::wstring dir = currentPanelDir();
+    if (dir.empty()) {
+        ErrorLogger::log(Error::make(MsgID::CannotDetermineCurrentDir));
+        return;
+    }
+    if (auto r = aliasMgr_->upsert(name, dir); !r) {
+        showError(r.error());
+        return;
+    }
+    showInfo(MsgID::PluginTitle, MsgID::AliasCreated, {name, dir});
+}
+
+void Plugin::handleNavigate(const std::wstring& name) {
+    auto r = aliasMgr_->find(name);
+    if (!r) {
+        showError(r.error());
+        return;
+    }
+    navigateTo((*r)->path);
+}
+
+void Plugin::handlePrefixSearch(const std::wstring& prefix) {
+    auto matches = aliasMgr_->findByPrefix(prefix);
+    if (matches.empty()) {
+        ErrorLogger::log(Error::make(MsgID::NoMatchingAliases, ErrorSeverity::Error, {prefix}));
+        return;
+    }
+    if (matches.size() == 1) {
+        navigateTo(matches.front()->path);
+        return;
+    }
+    std::vector<FarMenuItem> items;
+    items.reserve(matches.size());
+    for (const auto* a : matches) {
+        FarMenuItem it{};
+        it.Text = a->name.c_str();
+        items.push_back(it);
+    }
+    const int choice =
+        Psi().Menu(Psi().ModuleNumber, -1, -1, 0, FMENU_WRAPMODE, GetMsg(MsgID::MatchMenuTitle),
+                   GetMsg(MsgID::MatchMenuFooter), L"nf", nullptr, nullptr, items.data(),
+                   static_cast<int>(items.size()));
+    if (choice >= 0 && choice < static_cast<int>(matches.size())) {
+        navigateTo(matches[choice]->path);
+    }
+}
+
+HANDLE Plugin::HandleCommand(const std::wstring& rest) {
+    // cd:            -> панель со всеми алиасами
+    // cd::name       -> создать алиас name для текущего каталога
+    // cd:name        -> перейти к алиасу name (или префиксный поиск)
+    if (rest.empty()) {
+        std::vector<std::wstring> names;
+        std::vector<std::wstring> paths;
+        for (const auto& a : aliasMgr_->all()) {
+            names.push_back(a.name);
+            paths.push_back(a.path);
+        }
+        return openAliasPanel(GetMsg(MsgID::AliasPanelTitle), std::move(names), std::move(paths));
+    }
+
+    if (rest.front() == L':') {
+        handleCreate(rest.substr(1));
+        return INVALID_HANDLE_VALUE;
+    }
+
+    if (auto r = aliasMgr_->find(rest); r) {
+        navigateTo((*r)->path);
+        return INVALID_HANDLE_VALUE;
+    }
+
+    handlePrefixSearch(rest);
+    return INVALID_HANDLE_VALUE;
+}
+
+} // namespace nf
+
+// src/plugin_context.cpp
+#include "plugin_context.h"
+
+namespace nf {
+
+void PluginContext::Init(const PluginStartupInfo& info) {
+    PluginContext& ctx = Instance();
+
+    ctx.info_ = info;
+
+    if (info.FSF) {
+        ctx.fsf_ = *info.FSF;
+        ctx.info_.FSF = &ctx.fsf_;
+    }
+
+    ctx.initialized_ = true;
+}
+
+PluginContext& PluginContext::Instance() {
+    static PluginContext s_ctx;
+    return s_ctx;
+}
+
+// ---- Методы класса ----
+
+const wchar_t* PluginContext::GetMsg(MsgID id) const { // ← этого не было
+    if (!initialized_) {
+        return L"<nf: PluginContext not initialized>";
+    }
+    return info_.GetMsg(info_.ModuleNumber, static_cast<int>(id));
+}
+
+std::wstring PluginContext::FormatMsg(MsgID id,
+                                      const std::vector<std::wstring>& args) const { // ← и этого
+    std::wstring msg = GetMsg(id);
+    for (size_t i = 0; i < args.size(); ++i) {
+        const std::wstring placeholder = L"{" + std::to_wstring(i) + L"}";
+        size_t pos = 0;
+        while ((pos = msg.find(placeholder, pos)) != std::wstring::npos) {
+            msg.replace(pos, placeholder.length(), args[i]);
+            pos += args[i].length();
+        }
+    }
+    return msg;
+}
+
+// ---- Free-функции (обёртки) ----
+const wchar_t* GetMsg(MsgID id) {
+    return PluginContext::Instance().GetMsg(id);
+}
+
+std::wstring FormatMsg(MsgID id, const std::vector<std::wstring>& args) {
+    return PluginContext::Instance().FormatMsg(id, args);
+}
+
+} // namespace nf
+
+// src/main.cpp
+#include <farplug-wide.h>
+
+#include <cstring>
+#include <memory>
+#include <string>
+#include <vector>
+
+#include "error_logger.h" // ← добавить в начало main.cpp
+#include "panel_data.h"
+#include "paths.h" // ← для logPath()
+#include "plugin.h"
+#include "plugin_context.h" // ← для PluginContext::Init
+
+namespace {
+
+namespace {
+inline const PluginStartupInfo& Psi() {
+    return nf::PluginContext::Instance().info();
+}
+} // namespace
+
+std::unique_ptr<nf::Plugin> g_plugin;
+
+const wchar_t* kPluginMenuStrings[] = {L"nf (directory aliases)"};
+
+wchar_t* dupW(const std::wstring& s) {
+    auto* p = static_cast<wchar_t*>(malloc((s.size() + 1) * sizeof(wchar_t)));
+    if (p)
+        wcscpy(p, s.c_str());
+    return p;
+}
+
+} // namespace
+
+extern "C" {
+
+// ---------------------------------------------------------------------------
+// Общие точки входа плагина
+// ---------------------------------------------------------------------------
+
+int WINAPI GetMinFarVersionW() {
+    return MAKEFARVERSION(2, 0);
+}
+
+void WINAPI SetStartupInfoW(const struct PluginStartupInfo* Info) {
+    if (!Info)
+        return;
+
+    // 1. Заполняем единый контекст — все Psi()/GetMsg() ходят сюда.
+    nf::PluginContext::Init(*Info);
+
+    // 2. Инициализируем логгер (путь — ~/.config/nf/nf.log).
+    nf::ErrorLogger::init(nf::logPath(), nf::LogOutput::Both, nf::ErrorSeverity::Error);
+
+    // 3. Теперь создаём плагин — он уже может пользоваться контекстом.
+    g_plugin = std::make_unique<nf::Plugin>();
+}
+
+void WINAPI GetPluginInfoW(struct PluginInfo* Info) {
+    Info->StructSize = sizeof(struct PluginInfo);
+    Info->Flags = PF_EDITOR | PF_VIEWER | PF_DIALOG;
+
+    Info->PluginMenuStrings = kPluginMenuStrings;
+    Info->PluginMenuStringsNumber = 1;
+
+    // Префикс "cd" в командной строке -> OpenPluginW(OPEN_COMMANDLINE)
+    Info->CommandPrefix = L"cd";
+}
+
+HANDLE WINAPI OpenPluginW(int OpenFrom, INT_PTR Item) {
+    if (!g_plugin)
+        return INVALID_HANDLE_VALUE;
+
+    if (OpenFrom == OPEN_FROMMACROSTRING || OpenFrom == OPEN_COMMANDLINE) {
+        const wchar_t* rest = Item ? reinterpret_cast<const wchar_t*>(Item) : L"";
+        return g_plugin->HandleCommand(rest);
+    }
+
+    if (OpenFrom == OPEN_PLUGINSMENU) {
+        return g_plugin->HandleCommand(L"");
+    }
+
+    return INVALID_HANDLE_VALUE;
+}
+
+void WINAPI ExitFARW() {
+    g_plugin.reset();
+}
+
+// ---------------------------------------------------------------------------
+// Колбэки виртуальной панели
+// ---------------------------------------------------------------------------
+
+int WINAPI GetFindDataW(HANDLE hPlugin, PluginPanelItem** pPanelItem, int* pItemsNumber,
+                        int /*OpMode*/) {
+    auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
+    if (!data) {
+        *pPanelItem = nullptr;
+        *pItemsNumber = 0;
+        return FALSE;
+    }
+
+    const int n = static_cast<int>(data->names.size());
+    if (n == 0) {
+        *pPanelItem = nullptr;
+        *pItemsNumber = 0;
+        return TRUE;
+    }
+
+    auto* items = static_cast<PluginPanelItem*>(calloc(n, sizeof(PluginPanelItem)));
+    if (!items) {
+        *pPanelItem = nullptr;
+        *pItemsNumber = 0;
+        return FALSE;
+    }
+
+    for (int i = 0; i < n; ++i) {
+        items[i].FindData.lpwszFileName = dupW(data->names[i]);
+        items[i].FindData.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+    }
+    *pPanelItem = items;
+    *pItemsNumber = n;
+    return TRUE;
+}
+
+void WINAPI FreeFindDataW(HANDLE /*hPlugin*/, PluginPanelItem* pPanelItem, int pItemsNumber) {
+    for (int i = 0; i < pItemsNumber; ++i) {
+        free(const_cast<wchar_t*>(pPanelItem[i].FindData.lpwszFileName));
+    }
+    free(pPanelItem);
+}
+
+void WINAPI GetOpenPluginInfoW(HANDLE hPlugin, OpenPluginInfo* Info) {
+    auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
+    Info->StructSize = sizeof(OpenPluginInfo);
+    Info->Flags = 0; // виртуальная панель
+    Info->HostFile = data ? data->hostFile.c_str() : L"nf-aliases";
+    Info->CurDir = L"";
+    Info->PanelTitle = data ? data->title.c_str() : L"nf aliases";
+    Info->Format = L"";
+}
+
+void WINAPI ClosePluginW(HANDLE hPlugin) {
+    delete reinterpret_cast<nf::PanelData*>(hPlugin);
+}
+
+int WINAPI SetDirectoryW(HANDLE hPlugin, const wchar_t* Dir, int /*OpMode*/) {
+    auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
+    if (!data)
+        return FALSE;
+
+    std::wstring target;
+    for (size_t i = 0; i < data->names.size(); ++i) {
+        if (data->names[i] == Dir) {
+            target = data->paths[i];
+            break;
+        }
+    }
+    if (target.empty())
+        return FALSE;
+
+    // Закрываем панель плагина и переходим в каталог на активной панели.
+    Psi().Control(hPlugin, FCTL_CLOSEPLUGIN, 0, 0);
+    Psi().Control(PANEL_ACTIVE, FCTL_SETPANELDIR, 0, reinterpret_cast<LONG_PTR>(target.c_str()));
+    return TRUE;
+}
+
+int WINAPI ProcessKeyW(HANDLE hPlugin, int Key, unsigned int ControlState) {
+    if (Key != VK_DELETE || ControlState != 0)
+        return FALSE;
+    auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
+    if (!data)
+        return FALSE;
+
+    PanelInfo pi{};
+    if (!Psi().Control(hPlugin, FCTL_GETPANELINFO, 0, reinterpret_cast<LONG_PTR>(&pi)))
+        return FALSE;
+    const int idx = pi.CurrentItem;
+    if (idx < 0 || idx >= static_cast<int>(data->names.size()))
+        return FALSE;
+
+    const std::wstring name = data->names[idx];
+
+    if (!g_plugin)
+        return TRUE;
+    const std::wstring question = L"Delete alias '" + name + L"'?";
+    const wchar_t* items[] = {L"Delete alias", question.c_str()};
+    int r = Psi().Message(Psi().ModuleNumber, FMSG_MB_YESNO, nullptr, items, 2, 0);
+    if (r != 0)
+        return TRUE; // No / Cancel
+
+    if (auto res = g_plugin->aliases().remove(name); !res) {
+        g_plugin->showError(res.error());
+        return TRUE;
+    }
+
+    data->names.erase(data->names.begin() + idx);
+    data->paths.erase(data->paths.begin() + idx);
+    Psi().Control(hPlugin, FCTL_UPDATEPANEL, 0, 0);
+    Psi().Control(hPlugin, FCTL_REDRAWPANEL, 0, 0);
+    return TRUE;
+}
+
+} // extern "C"
+
+// src/alias_manager.h
+#pragma once
+
+#include "alias.h"
+#include "error.h"
+#include <filesystem>
+
+namespace nf {
+
+class AliasManager {
+  public:
+    explicit AliasManager(std::filesystem::path storageFile);
+
+    void_err load();
+    [[nodiscard]] void_err save() const;
+
+    const std::vector<Alias>& all() const { return aliases_; }
+
+    // Поиск: возвращает t_err<const Alias*>, чтобы вызывающий различал
+    // «не найдено» и «пустой указатель по другой причине».
+    [[nodiscard]] t_err<const Alias*> find(const std::wstring& name) const;
+    [[nodiscard]] std::vector<const Alias*> findByPrefix(const std::wstring& prefix) const;
+
+    void_err add(const std::wstring& name, const std::wstring& path);
+    void_err upsert(const std::wstring& name, const std::wstring& path);
+    void_err remove(const std::wstring& name);
+
+    [[nodiscard]] const std::filesystem::path& storageFile() const { return storageFile_; }
+
+  private:
+    std::filesystem::path storageFile_;
+    std::vector<Alias> aliases_;
+};
+
+} // namespace nf
+
+// src/error.h
+#pragma once
+
+#include <cstdint>
+#include <expected>
+#include <string>
+#include <vector>
+
+#include "msg_ids.h"
+
+namespace nf {
+
+enum class ErrorSeverity : std::uint8_t { Info, Warning, Error, Critical };
+
+struct Error {
+    MsgID msg_id = MsgID::PluginTitle;
+    ErrorSeverity severity = ErrorSeverity::Error;
+    std::vector<std::wstring> args;
+    const char* file = "";
+    int line = 0;
+    const char* function = "";
+
+    // Базовая фабрика: без trace-информации. Для внутренних вызовов,
+    // где источник ошибки и так очевиден.
+    static Error make(MsgID msg_id, ErrorSeverity sev = ErrorSeverity::Error,
+                      std::vector<std::wstring> args = {}) {
+        return Error{msg_id, sev, std::move(args)};
+    }
+
+    // Фабрика с trace-информацией. Не зовите руками —
+    // используйте макросы NF_ERR / NF_ERR0 ниже.
+    static Error make_traced(MsgID msg_id, ErrorSeverity sev, std::vector<std::wstring> args,
+                             const char* file, int line, const char* function) {
+        return Error{msg_id, sev, std::move(args), file, line, function};
+    }
+
+    [[nodiscard]] std::wstring localizedMessage() const;
+    [[nodiscard]] std::wstring stackTraceToString() const;
+};
+
+template <typename T> using t_err = std::expected<T, Error>;
+
+using void_err = std::expected<void, Error>;
+
+} // namespace nf
+
+// ---- Макросы автоматического захвата места вызова ----
+// NF_ERR0  — без аргументов подстановки
+// NF_ERR   — с аргументами {0}, {1}, ...
+// NF_ERR_SEV — с явной severity
+
+#define NF_ERR0(msg_id)                                                                            \
+    ::nf::Error::make_traced(msg_id, ::nf::ErrorSeverity::Error, {}, __FILE__, __LINE__, __func__)
+
+#define NF_ERR(msg_id, ...)                                                                        \
+    ::nf::Error::make_traced(msg_id, ::nf::ErrorSeverity::Error,                                   \
+                             ::std::vector<::std::wstring>{__VA_ARGS__}, __FILE__, __LINE__,       \
+                             __func__)
+
+#define NF_ERR_SEV(msg_id, sev, ...)                                                               \
+    ::nf::Error::make_traced(msg_id, sev, ::std::vector<::std::wstring>{__VA_ARGS__}, __FILE__,    \
+                             __LINE__, __func__)
+
+// src/error_logger.cpp
+
+#include <chrono>
+#include <ctime>
+#include <mutex>
+#include <sstream>
+
+#include "plugin_context.h" 
+#include "error_logger.h"
+
+namespace nf {
+
+std::mutex ErrorLogger::mtx_;
+std::ofstream ErrorLogger::file_;
+std::filesystem::path ErrorLogger::logPath_;
+LogOutput ErrorLogger::output_ = LogOutput::Both;
+ErrorSeverity ErrorLogger::minSeverity_ = ErrorSeverity::Error;
+
+void ErrorLogger::init(const std::filesystem::path& logFile, LogOutput output,
+                       ErrorSeverity minSeverity) {
+    std::lock_guard lock(mtx_);
+    if (file_.is_open())
+        file_.close();
+    logPath_ = logFile;
+    output_ = output;
+    minSeverity_ = minSeverity;
+}
+
+void ErrorLogger::setOutput(LogOutput output) {
+    std::lock_guard lock(mtx_);
+    output_ = output;
+}
+
+void ErrorLogger::setMinSeverity(ErrorSeverity severity) {
+    std::lock_guard lock(mtx_);
+    minSeverity_ = severity;
+}
+
+LogOutput ErrorLogger::output() {
+    std::lock_guard lock(mtx_);
+    return output_;
+}
+
+ErrorSeverity ErrorLogger::minSeverity() {
+    std::lock_guard lock(mtx_);
+    return minSeverity_;
+}
+
+void ErrorLogger::log(const Error& error) {
+    // Снимок настроек под мьютексом, вывод — уже без него.
+    LogOutput mode;
+    ErrorSeverity minSev;
+    {
+        std::lock_guard lock(mtx_);
+        mode = output_;
+        minSev = minSeverity_;
+    }
+
+    if (error.severity < minSev)
+        return;
+
+    if (has(mode, LogOutput::File))
+        writeToFile(error);
+    if (has(mode, LogOutput::Message))
+        showDialog(error);
+}
+
+void ErrorLogger::writeToFile(const Error& error) {
+    std::lock_guard lock(mtx_);
+    ensureFileOpenLocked();
+    if (!file_.is_open())
+        return; // тихо игнорируем — некуда писать
+    file_ << formatForFile(error);
+    file_.flush();
+}
+
+void ErrorLogger::showDialog(const Error& error) {
+    // Если плагин ещё не инициализирован (например, ошибка в SetStartupInfoW
+    // до PluginContext::Init) — не падаем, просто ничего не делаем.
+    if (!PluginContext::Instance().initialized())
+        return;
+
+    const std::wstring body = error.localizedMessage();
+    const wchar_t* items[] = {GetMsg(MsgID::ErrorTitle), body.c_str()};
+
+    const auto& psi = PluginContext::Instance().info();
+    psi.Message(psi.ModuleNumber, FMSG_MB_OK, nullptr, items, 2, 0);
+}
+
+void ErrorLogger::ensureFileOpenLocked() {
+    if (file_.is_open() || logPath_.empty())
+        return;
+
+    std::error_code ec;
+    if (!logPath_.parent_path().empty()) {
+        std::filesystem::create_directories(logPath_.parent_path(), ec);
+    }
+    file_.open(logPath_, std::ios::out | std::ios::app);
+}
+
+std::string ErrorLogger::formatForFile(const Error& error) {
+    std::ostringstream oss;
+    oss << "[" << timestamp() << "] "
+        << "[" << severityTag(error.severity) << "] " << toUtf8(error.localizedMessage());
+
+    if (error.severity == ErrorSeverity::Critical) {
+        oss << " | " << toUtf8(error.stackTraceToString());
+    }
+    oss << '\n';
+    return oss.str();
+}
+
+const char* ErrorLogger::severityTag(ErrorSeverity sev) {
+    switch (sev) {
+    case ErrorSeverity::Info:
+        return "INFO";
+    case ErrorSeverity::Warning:
+        return "WARN";
+    case ErrorSeverity::Error:
+        return "ERROR";
+    case ErrorSeverity::Critical:
+        return "CRITICAL";
+    }
+    return "?";
+}
+
+std::string ErrorLogger::timestamp() {
+    using namespace std::chrono;
+    const auto t = system_clock::to_time_t(system_clock::now());
+    std::tm tm{};
+    localtime_r(&t, &tm);
+    char buf[32];
+    std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
+    return buf;
+}
+
+std::string ErrorLogger::toUtf8(const std::wstring& w) {
+    // Простая ASCII/UTF-8-совместимая конверсия; для полноценной
+    // локализованной строки можно использовать StrWide2MB из far2l.
+    std::string out;
+    out.reserve(w.size());
+    for (wchar_t c : w) {
+        out.push_back(c < 0x80 ? static_cast<char>(c) : '?');
+    }
+    return out;
+}
+
+} // namespace nf
+
+// CMakeLists.txt
+cmake_minimum_required(VERSION 3.31)
+project(nf VERSION 1.0.0 LANGUAGES CXX)
+
+# ===== ccache =====
+find_program(CCACHE_PROGRAM ccache)
+if(CCACHE_PROGRAM)
+	set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+	set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+	message(STATUS "ccache found: ${CCACHE_PROGRAM}")
+else()
+	message(WARNING "ccache not found — builds will be slower")
+endif()
+
+# --- Генерация compile_commands.json для clangd ---
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+# --- Стандарт ---
+set(CMAKE_CXX_STANDARD 23)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+set(CMAKE_CXX_EXTENSIONS OFF)
+
+# --- Отключаем сканирование C++-модулей (clang-scan-deps не нужен) ---
+set(CMAKE_CXX_SCAN_FOR_MODULES OFF)
+
+# --- Куда ставить плагин (для far2l) ---
+if (NOT DEFINED FAR2L_PLUGINS_DIR)
+    set(FAR2L_PLUGINS_DIR "$ENV{HOME}/.local/share/far2l/Plugins"
+            CACHE PATH "Directory where far2l loads plugins from")
+endif ()
+
+# --- Путь к SDK ---
+set(FAR2L_SRC_DIR     "${CMAKE_SOURCE_DIR}/../far2l")
+set(FAR2L_SDK_DIR     "${FAR2L_SRC_DIR}/far2l/far2sdk")
+set(FAR2L_WINPORT_DIR "${FAR2L_SRC_DIR}/WinPort")
+
+
+# --- Общие флаги компиляции ---
+add_compile_options(
+        -Wall -Wextra -Wpedantic
+        -Wno-unused-parameter
+)
+
+# --- Опции тестов ---
+option(NF_BUILD_TESTS "Build tests" ON)
+
+
+add_library(nf_project_config INTERFACE)
+target_include_directories(nf_project_config INTERFACE ${CMAKE_SOURCE_DIR})
+link_libraries(nf_project_config)
+
+# --- Поддиректории ---
+add_subdirectory(src)
+if (NF_BUILD_TESTS)
+    enable_testing()
+    add_subdirectory(tests)
+endif ()
+
+
+
