@@ -5,11 +5,11 @@
 #include <string>
 #include <vector>
 
-#include "error_logger.h" // ← добавить в начало main.cpp
+#include "error_logger.h"
 #include "panel_data.h"
-#include "paths.h" // ← для logPath()
+#include "paths.h" 
 #include "plugin.h"
-#include "plugin_context.h" // ← для PluginContext::Init
+#include "plugin_context.h" 
 
 namespace {
 
@@ -53,7 +53,7 @@ SHAREDSYMBOL void WINAPI EXP_NAME(SetStartupInfo)(const struct PluginStartupInfo
 SHAREDSYMBOL void WINAPI EXP_NAME(GetPluginInfo)(struct PluginInfo* Info) {
     Info->StructSize = sizeof(struct PluginInfo);
     Info->Flags = 0;          // VFS-плагин + командный префикс, без PF_DIALOG/PF_DISABLEPANELS
-    Info->SysID = 0x4E46504C; // 'NFPL' — зафиксируй свой уникальный ID
+    Info->SysID = 0x4E46504C; // 'NFPL' — нужен уникальный ID
 
     // Info->GetMsg владеет строкой, указатель жив до выгрузки плагина.
     static const wchar_t* s_menu_strings[1];

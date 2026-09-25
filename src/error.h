@@ -26,8 +26,6 @@ struct Error {
         return Error{.msg_id=msg_id, .severity=sev, .args=std::move(args)};
     }
 
-    // Фабрика с trace-информацией. Не зовите руками —
-    // используйте макросы NF_ERR / NF_ERR0 ниже.
     static Error make_traced(MsgID msg_id, ErrorSeverity sev, std::vector<std::wstring> args,
                              const char* file, int line, const char* function) {
         return Error{.msg_id=msg_id, .severity=sev, .args=std::move(args), .file=file, .line=line, .function=function};

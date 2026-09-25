@@ -7,8 +7,6 @@ using nf::substitutePlaceholders;
 using nf::toUtf8;
 
 // ==================== UTF-8 codec ====================
-// Именно тут был краш: Wide2MB/MB2Wide из far2l не линковались.
-// Проверяем ручной кодек на всех классах последовательностей.
 
 TEST_CASE("toUtf8: пустая строка", "[common][utf8]") {
     CHECK(toUtf8(L"") == "");
@@ -28,7 +26,6 @@ TEST_CASE("toUtf8: кириллица (2 байта)", "[common][utf8]") {
 }
 
 TEST_CASE("toUtf8: CJK (3 байта)", "[common][utf8]") {
-    // "日本" = 2 кодпоинта * 3 байта
     CHECK(toUtf8(L"日本") == "\xE6\x97\xA5\xE6\x9C\xAC");
 }
 

@@ -23,7 +23,7 @@ PluginContext& PluginContext::Instance() {
 
 // ---- Методы класса ----
 
-const wchar_t* PluginContext::GetMsg(MsgID id) const { // ← этого не было
+const wchar_t* PluginContext::GetMsg(MsgID id) const { 
     if (!initialized_) {
         return L"<nf: PluginContext not initialized>";
     }
@@ -31,7 +31,7 @@ const wchar_t* PluginContext::GetMsg(MsgID id) const { // ← этого не б
 }
 
 std::wstring PluginContext::FormatMsg(MsgID id,
-                                      const std::vector<std::wstring>& args) const { // ← и этого
+                                      const std::vector<std::wstring>& args) const {
     return substitutePlaceholders(GetMsg(id), args);
 }
 

@@ -241,8 +241,6 @@ TEST_CASE("AliasManager::remove: удаляет существующий", "[ali
 }
 
 TEST_CASE("AliasManager::remove: несуществующий → AliasNotFound", "[alias_manager][regression]") {
-    // Регрессия: раньше проверялось it == aliases_.end(), что работало
-    // случайно. Теперь сравниваем размеры.
     TempAliasFile tmp;
     nf::AliasManager mgr(tmp.path());
     REQUIRE(mgr.load());
