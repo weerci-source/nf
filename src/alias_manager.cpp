@@ -1,23 +1,12 @@
 #include "alias_manager.h"
-
+#include "common.h"
+#include <WideMB.h>
 #include <algorithm>
-#include <codecvt>
 #include <fstream>
-#include <locale>
 
 namespace nf {
 
 namespace {
-
-std::string toUtf8(const std::wstring& w) {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.to_bytes(w);
-}
-
-std::wstring fromUtf8(const std::string& s) {
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.from_bytes(s);
-}
 
 void_err validateName(const std::wstring& name) {
     if (name.empty()) {

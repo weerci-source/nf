@@ -53,7 +53,6 @@ class ErrorLogger {
     static std::string formatForFile(const Error& error);
     static const char* severityTag(ErrorSeverity sev);
     static std::string timestamp();
-    static std::string toUtf8(const std::wstring& w);
 };
 
 } // namespace nf

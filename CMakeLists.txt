@@ -32,6 +32,7 @@ endif ()
 set(FAR2L_SRC_DIR     "${CMAKE_SOURCE_DIR}/../far2l")
 set(FAR2L_SDK_DIR     "${FAR2L_SRC_DIR}/far2l/far2sdk")
 set(FAR2L_WINPORT_DIR "${FAR2L_SRC_DIR}/WinPort")
+set(FAR2L_UTILS_DIR "${FAR2L_SRC_DIR}/utils/include")
 
 
 # --- Общие флаги компиляции ---

@@ -19,8 +19,6 @@ inline const PluginStartupInfo& Psi() {
 
 std::unique_ptr<nf::Plugin> g_plugin;
 
-const wchar_t* kPluginMenuStrings[] = {L"nf (directory aliases)"};
-
 wchar_t* dupW(const std::wstring& s) {
     auto* p = static_cast<wchar_t*>(malloc((s.size() + 1) * sizeof(wchar_t)));
     if (p)
@@ -30,17 +28,15 @@ wchar_t* dupW(const std::wstring& s) {
 
 } // namespace
 
-extern "C" {
-
 // ---------------------------------------------------------------------------
 // Общие точки входа плагина
 // ---------------------------------------------------------------------------
 
-int WINAPI GetMinFarVersionW() {
+SHAREDSYMBOL int WINAPI EXP_NAME(GetMinFarVersion)() {
     return MAKEFARVERSION(2, 0);
 }
 
-void WINAPI SetStartupInfoW(const struct PluginStartupInfo* Info) {
+SHAREDSYMBOL void WINAPI EXP_NAME(SetStartupInfo)(const struct PluginStartupInfo* Info) {
     if (!Info)
         return;
 
@@ -54,18 +50,23 @@ void WINAPI SetStartupInfoW(const struct PluginStartupInfo* Info) {
     g_plugin = std::make_unique<nf::Plugin>();
 }
 
-void WINAPI GetPluginInfoW(struct PluginInfo* Info) {
+SHAREDSYMBOL void WINAPI EXP_NAME(GetPluginInfo)(struct PluginInfo* Info) {
     Info->StructSize = sizeof(struct PluginInfo);
-    Info->Flags = PF_EDITOR | PF_VIEWER | PF_DIALOG;
+    Info->Flags = 0;          // VFS-плагин + командный префикс, без PF_DIALOG/PF_DISABLEPANELS
+    Info->SysID = 0x4E46504C; // 'NFPL' — зафиксируй свой уникальный ID
 
-    Info->PluginMenuStrings = kPluginMenuStrings;
+    // Меню-строки должны браться из .lng, а не хардкодиться.
+    // Info->GetMsg владеет строкой, указатель жив до выгрузки плагина.
+    static const wchar_t* s_menu_strings[1];
+    s_menu_strings[0] = nf::GetMsg(nf::MsgID::PluginTitle);
+    Info->PluginMenuStrings = s_menu_strings;
     Info->PluginMenuStringsNumber = 1;
 
     // Префикс "cd" в командной строке -> OpenPluginW(OPEN_COMMANDLINE)
     Info->CommandPrefix = L"cd";
 }
 
-HANDLE WINAPI OpenPluginW(int OpenFrom, INT_PTR Item) {
+SHAREDSYMBOL HANDLE WINAPI EXP_NAME(OpenPlugin)(int OpenFrom, INT_PTR Item) {
     if (!g_plugin)
         return INVALID_HANDLE_VALUE;
 
@@ -81,16 +82,21 @@ HANDLE WINAPI OpenPluginW(int OpenFrom, INT_PTR Item) {
     return INVALID_HANDLE_VALUE;
 }
 
-void WINAPI ExitFARW() {
+SHAREDSYMBOL void WINAPI EXP_NAME(ExitFAR)() {
     g_plugin.reset();
+}
+
+// Обязательный экспорт, даже если настроек пока нет.
+SHAREDSYMBOL int WINAPI EXP_NAME(Configure)(int /*ItemNumber*/) {
+    return FALSE;
 }
 
 // ---------------------------------------------------------------------------
 // Колбэки виртуальной панели
 // ---------------------------------------------------------------------------
 
-int WINAPI GetFindDataW(HANDLE hPlugin, PluginPanelItem** pPanelItem, int* pItemsNumber,
-                        int /*OpMode*/) {
+SHAREDSYMBOL int WINAPI EXP_NAME(GetFindData)(HANDLE hPlugin, PluginPanelItem** pPanelItem,
+                                              int* pItemsNumber, int /*OpMode*/) {
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
     if (!data) {
         *pPanelItem = nullptr;
@@ -125,14 +131,15 @@ int WINAPI GetFindDataW(HANDLE hPlugin, PluginPanelItem** pPanelItem, int* pItem
     return TRUE;
 }
 
-void WINAPI FreeFindDataW(HANDLE /*hPlugin*/, PluginPanelItem* pPanelItem, int pItemsNumber) {
+SHAREDSYMBOL void WINAPI EXP_NAME(FreeFindData)(HANDLE /*hPlugin*/, PluginPanelItem* pPanelItem,
+                                                int pItemsNumber) {
     for (int i = 0; i < pItemsNumber; ++i) {
         free(const_cast<wchar_t*>(pPanelItem[i].FindData.lpwszFileName));
     }
     free(pPanelItem);
 }
 
-void WINAPI GetOpenPluginInfoW(HANDLE hPlugin, OpenPluginInfo* Info) {
+SHAREDSYMBOL void WINAPI EXP_NAME(GetOpenPluginInfo)(HANDLE hPlugin, OpenPluginInfo* Info) {
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
 
     Info->StructSize = sizeof(OpenPluginInfo);
@@ -143,11 +150,11 @@ void WINAPI GetOpenPluginInfoW(HANDLE hPlugin, OpenPluginInfo* Info) {
     Info->Format = L"";
 }
 
-void WINAPI ClosePluginW(HANDLE hPlugin) {
+SHAREDSYMBOL void WINAPI EXP_NAME(ClosePlugin)(HANDLE hPlugin) {
     delete reinterpret_cast<nf::PanelData*>(hPlugin);
 }
 
-int WINAPI SetDirectoryW(HANDLE hPlugin, const wchar_t* Dir, int /*OpMode*/) {
+SHAREDSYMBOL int WINAPI EXP_NAME(SetDirectory)(HANDLE hPlugin, const wchar_t* Dir, int /*OpMode*/) {
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
     if (!data)
         return FALSE;
@@ -159,8 +166,6 @@ int WINAPI SetDirectoryW(HANDLE hPlugin, const wchar_t* Dir, int /*OpMode*/) {
             break;
         }
     }
-    // Защита: если far2l передал чистое имя (например, в старых версиях) —
-    // сравниваем и с names.
     if (target.empty()) {
         for (size_t i = 0; i < data->names.size(); ++i) {
             if (data->names[i] == Dir) {
@@ -177,7 +182,7 @@ int WINAPI SetDirectoryW(HANDLE hPlugin, const wchar_t* Dir, int /*OpMode*/) {
     return TRUE;
 }
 
-int WINAPI ProcessKeyW(HANDLE hPlugin, int Key, unsigned int ControlState) {
+SHAREDSYMBOL int WINAPI EXP_NAME(ProcessKey)(HANDLE hPlugin, int Key, unsigned int ControlState) {
     if (Key != VK_DELETE || ControlState != 0)
         return FALSE;
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
@@ -202,7 +207,7 @@ int WINAPI ProcessKeyW(HANDLE hPlugin, int Key, unsigned int ControlState) {
     const int r = Psi().Message(Psi().ModuleNumber, FMSG_MB_YESNO, nullptr, items, 2, 0);
 
     if (r != 0)
-        return TRUE; // No / Cancel
+        return TRUE;
 
     if (auto res = g_plugin->aliases().remove(name); !res) {
         nf::ErrorLogger::log(res.error());
@@ -215,5 +220,3 @@ int WINAPI ProcessKeyW(HANDLE hPlugin, int Key, unsigned int ControlState) {
     Psi().Control(hPlugin, FCTL_REDRAWPANEL, 0, 0);
     return TRUE;
 }
-
-} // extern "C"
