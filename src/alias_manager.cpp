@@ -1,6 +1,5 @@
 #include "alias_manager.h"
 #include "common.h"
-#include <WideMB.h>
 #include <algorithm>
 #include <fstream>
 

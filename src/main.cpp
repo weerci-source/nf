@@ -55,14 +55,17 @@ SHAREDSYMBOL void WINAPI EXP_NAME(GetPluginInfo)(struct PluginInfo* Info) {
     Info->Flags = 0;          // VFS-плагин + командный префикс, без PF_DIALOG/PF_DISABLEPANELS
     Info->SysID = 0x4E46504C; // 'NFPL' — зафиксируй свой уникальный ID
 
-    // Меню-строки должны браться из .lng, а не хардкодиться.
     // Info->GetMsg владеет строкой, указатель жив до выгрузки плагина.
     static const wchar_t* s_menu_strings[1];
     s_menu_strings[0] = nf::GetMsg(nf::MsgID::PluginTitle);
     Info->PluginMenuStrings = s_menu_strings;
     Info->PluginMenuStringsNumber = 1;
 
-    // Префикс "cd" в командной строке -> OpenPluginW(OPEN_COMMANDLINE)
+    static const wchar_t* s_config_strings[1]; 
+    s_config_strings[0] = nf::GetMsg(nf::MsgID::PluginTitle);
+    Info->PluginConfigStrings = s_config_strings;
+    Info->PluginConfigStringsNumber = 1;
+
     Info->CommandPrefix = L"cd";
 }
 
@@ -141,13 +144,12 @@ SHAREDSYMBOL void WINAPI EXP_NAME(FreeFindData)(HANDLE /*hPlugin*/, PluginPanelI
 
 SHAREDSYMBOL void WINAPI EXP_NAME(GetOpenPluginInfo)(HANDLE hPlugin, OpenPluginInfo* Info) {
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
-
     Info->StructSize = sizeof(OpenPluginInfo);
     Info->Flags = 0;
     Info->HostFile = data ? data->hostFile.c_str() : L"nf-aliases";
     Info->CurDir = L"";
     Info->PanelTitle = data ? data->title.c_str() : L"nf aliases";
-    Info->Format = L"";
+    Info->Format = nullptr;
 }
 
 SHAREDSYMBOL void WINAPI EXP_NAME(ClosePlugin)(HANDLE hPlugin) {

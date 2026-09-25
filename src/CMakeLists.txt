@@ -12,7 +12,6 @@ add_library(nf MODULE
 target_include_directories(nf SYSTEM PRIVATE
         "${FAR2L_SDK_DIR}"
         "${FAR2L_WINPORT_DIR}"
-        "${FAR2L_UTILS_DIR}"
 )
 target_include_directories(nf PRIVATE
         "${CMAKE_CURRENT_SOURCE_DIR}"

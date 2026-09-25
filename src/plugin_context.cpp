@@ -1,4 +1,5 @@
 #include "plugin_context.h"
+#include "common.h"
 
 namespace nf {
 
@@ -31,16 +32,7 @@ const wchar_t* PluginContext::GetMsg(MsgID id) const { // ← этого не б
 
 std::wstring PluginContext::FormatMsg(MsgID id,
                                       const std::vector<std::wstring>& args) const { // ← и этого
-    std::wstring msg = GetMsg(id);
-    for (size_t i = 0; i < args.size(); ++i) {
-        const std::wstring placeholder = L"{" + std::to_wstring(i) + L"}";
-        size_t pos = 0;
-        while ((pos = msg.find(placeholder, pos)) != std::wstring::npos) {
-            msg.replace(pos, placeholder.length(), args[i]);
-            pos += args[i].length();
-        }
-    }
-    return msg;
+    return substitutePlaceholders(GetMsg(id), args);
 }
 
 // ---- Free-функции (обёртки) ----

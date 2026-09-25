@@ -1,4 +1,5 @@
 #include "error.h"
+#include "common.h"
 
 namespace nf {
 
@@ -7,16 +8,7 @@ namespace nf {
 const wchar_t* GetMsg(MsgID id);
 
 std::wstring Error::localizedMessage() const {
-    std::wstring msg = GetMsg(msg_id);
-    for (size_t i = 0; i < args.size(); ++i) {
-        const std::wstring placeholder = L"{" + std::to_wstring(i) + L"}";
-        size_t pos = 0;
-        while ((pos = msg.find(placeholder, pos)) != std::wstring::npos) {
-            msg.replace(pos, placeholder.length(), args[i]);
-            pos += args[i].length();
-        }
-    }
-    return msg.empty() ? L"<untranslated>" : msg;
+    return substitutePlaceholders(GetMsg(msg_id), args);
 }
 
 std::wstring Error::stackTraceToString() const {

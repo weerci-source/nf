@@ -10,6 +10,9 @@ namespace {
 // работает только на Linux/BSD/macOS, где wchar_t = UTF-32.
 
 void appendUtf8(std::string& out, char32_t cp) {
+    if (cp > 0x10FFFF || (cp >= 0xD800 && cp <= 0xDFFF)) {
+        return; 
+    };
     if (cp < 0x80) {
         out.push_back(static_cast<char>(cp));
     } else if (cp < 0x800) {
@@ -68,19 +71,60 @@ std::wstring fromUtf8(const std::string& s) {
             continue;
         }
 
-        if (p + extra >= end) break; // обрезанная последовательность
+        if (p + extra >= end)
+            break; // обрезанная последовательность
 
         bool ok = true;
         for (int k = 1; k <= extra; ++k) {
-            if ((p[k] & 0xC0) != 0x80) { ok = false; break; }
+            if ((p[k] & 0xC0) != 0x80) {
+                ok = false;
+                break;
+            }
             cp = (cp << 6) | (p[k] & 0x3F);
         }
-        if (!ok) { ++p; continue; }
+        if (!ok) {
+            ++p;
+            continue;
+        }
 
         out.push_back(static_cast<wchar_t>(cp));
         p += extra + 1;
     }
     return out;
+}
+
+std::wstring substitutePlaceholders(std::wstring tmpl, const std::vector<std::wstring>& args) {
+    std::wstring result;
+    result.reserve(tmpl.size());
+
+    size_t i = 0;
+    while (i < tmpl.size()) {
+        if (tmpl[i] == L'{') {
+            size_t j = i + 1;
+            unsigned long long n = 0;
+            bool hasDigit = false;
+            while (j < tmpl.size() && tmpl[j] >= L'0' && tmpl[j] <= L'9') {
+                hasDigit = true;
+                n = n * 10 + static_cast<unsigned long long>(tmpl[j] - L'0');
+                if (n > 1000)
+                    break; // защита от переполнения
+                ++j;
+            }
+            if (hasDigit && j < tmpl.size() && tmpl[j] == L'}') {
+                if (n < args.size()) {
+                    result += args[n];
+                } else {
+                    // нет аргумента — оставляем placeholder
+                    result.append(tmpl, i, j - i + 1);
+                }
+                i = j + 1;
+                continue;
+            }
+        }
+        result.push_back(tmpl[i]);
+        ++i;
+    }
+    return result;
 }
 
 } // namespace nf
