@@ -1,10 +1,9 @@
 
 #include <chrono>
-#include <codecvt>
 #include <ctime>
-#include <locale>
 #include <mutex>
 #include <sstream>
+#include "common.h"
 
 #include "error_logger.h"
 #include "plugin_context.h"
@@ -133,13 +132,6 @@ std::string ErrorLogger::timestamp() {
     char buf[32];
     std::strftime(buf, sizeof(buf), "%Y-%m-%d %H:%M:%S", &tm);
     return buf;
-}
-
-std::string ErrorLogger::toUtf8(const std::wstring& w) {
-    // TODO: Простая ASCII/UTF-8-совместимая конверсия; для полноценной  локализованной строки можно
-    // использовать StrWide2MB из far2l.
-    std::wstring_convert<std::codecvt_utf8<wchar_t>> conv;
-    return conv.to_bytes(w);
 }
 
 } // namespace nf

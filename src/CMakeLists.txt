@@ -1,4 +1,4 @@
-add_library(nf SHARED
+add_library(nf MODULE
         main.cpp
         plugin.cpp
         alias_manager.cpp
@@ -6,6 +6,7 @@ add_library(nf SHARED
         error_logger.cpp
         error.cpp
         paths.cpp
+        common.cpp
 )
 
 target_include_directories(nf SYSTEM PRIVATE
@@ -17,6 +18,9 @@ target_include_directories(nf PRIVATE
 )
 
 target_compile_options(nf PRIVATE -fvisibility=default)
+
+# Обязательно для внешних плагинов: запрещает линковаться к приватным символам far2l.
+target_compile_definitions(nf PRIVATE -DFAR_DONT_USE_INTERNALS)
 
 set_target_properties(nf PROPERTIES
         PREFIX ""

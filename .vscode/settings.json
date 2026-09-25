@@ -6,7 +6,19 @@
         "**/far2l": true
     },
     "clangd.arguments": [
-        "--clang-tidy",                         // ← ВКЛЮЧАЕТ ПОДДЕРЖКУ .clang-tidy
-        "--clang-tidy-checks=*"                 // Разрешаем обрабатывать все сконфигурированные проверки
+        "--clang-tidy", // ← ВКЛЮЧАЕТ ПОДДЕРЖКУ .clang-tidy
+        "--clang-tidy-checks=*" // Разрешаем обрабатывать все сконфигурированные проверки
+    ],
+    "cmake.ctest.testExplorerIntegrationEnabled": false,
+    "testMate.cpp.test.advancedExecutables": [
+        {
+            "pattern": "build*/tests/nf_tests",
+            "catch2": {
+                "testGrouping": {
+                    "groupByTags": true,
+                    "groupUngroupedTo": "Other"
+                }
+            }
+        }
     ]
 }

@@ -3,13 +3,13 @@ project(nf VERSION 1.0.0 LANGUAGES CXX)
 
 # ===== ccache =====
 find_program(CCACHE_PROGRAM ccache)
-if(CCACHE_PROGRAM)
-	set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-	set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
-	message(STATUS "ccache found: ${CCACHE_PROGRAM}")
-else()
-	message(WARNING "ccache not found — builds will be slower")
-endif()
+if (CCACHE_PROGRAM)
+    set(CMAKE_CXX_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    set(CMAKE_C_COMPILER_LAUNCHER "${CCACHE_PROGRAM}")
+    message(STATUS "ccache found: ${CCACHE_PROGRAM}")
+else ()
+    message(WARNING "ccache not found — builds will be slower")
+endif ()
 
 # --- Генерация compile_commands.json для clangd ---
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
@@ -29,8 +29,8 @@ if (NOT DEFINED FAR2L_PLUGINS_DIR)
 endif ()
 
 # --- Путь к SDK ---
-set(FAR2L_SRC_DIR     "${CMAKE_SOURCE_DIR}/../far2l")
-set(FAR2L_SDK_DIR     "${FAR2L_SRC_DIR}/far2l/far2sdk")
+set(FAR2L_SRC_DIR "${CMAKE_SOURCE_DIR}/../far2l")
+set(FAR2L_SDK_DIR "${FAR2L_SRC_DIR}/far2l/far2sdk")
 set(FAR2L_WINPORT_DIR "${FAR2L_SRC_DIR}/WinPort")
 
 
