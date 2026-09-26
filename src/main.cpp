@@ -2,14 +2,15 @@
 
 #include <cwchar>
 #include <memory>
+#include <ranges>
 #include <string>
 #include <vector>
 
 #include "error_logger.h"
 #include "panel_data.h"
-#include "paths.h" 
+#include "paths.h"
 #include "plugin.h"
-#include "plugin_context.h" 
+#include "plugin_context.h"
 
 namespace {
 
@@ -61,7 +62,7 @@ SHAREDSYMBOL void WINAPI EXP_NAME(GetPluginInfo)(struct PluginInfo* Info) {
     Info->PluginMenuStrings = s_menu_strings;
     Info->PluginMenuStringsNumber = 1;
 
-    static const wchar_t* s_config_strings[1]; 
+    static const wchar_t* s_config_strings[1];
     s_config_strings[0] = nf::GetMsg(nf::MsgID::PluginTitle);
     Info->PluginConfigStrings = s_config_strings;
     Info->PluginConfigStringsNumber = 1;
@@ -98,48 +99,53 @@ SHAREDSYMBOL int WINAPI EXP_NAME(Configure)(int /*ItemNumber*/) {
 // Колбэки виртуальной панели
 // ---------------------------------------------------------------------------
 
-SHAREDSYMBOL int WINAPI EXP_NAME(GetFindData)(HANDLE hPlugin, PluginPanelItem** pPanelItem,
-                                              int* pItemsNumber, int /*OpMode*/) {
+SHAREDSYMBOL int WINAPI EXP_NAME(GetFindData)(HANDLE hPlugin, PluginPanelItem** pPanelItem, int* pItemsNumber, int /*OpMode*/) {
+
+    if (pPanelItem)
+        *pPanelItem = nullptr;
+    if (pItemsNumber)
+        *pItemsNumber = 0;
+
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
-    if (!data) {
-        *pPanelItem = nullptr;
-        *pItemsNumber = 0;
-        return FALSE;
+    if (!data || data->entries.empty()) {
+        // Если плагина нет, возвращаем FALSE, если он пустой — TRUE (штатная ситуация)
+        return data ? TRUE : FALSE;
     }
 
-    const int n = static_cast<int>(data->names.size());
-    if (n == 0) {
-        *pPanelItem = nullptr;
-        *pItemsNumber = 0;
-        return TRUE;
-    }
+    const auto count = data->entries.size();
 
-    auto* items = static_cast<PluginPanelItem*>(calloc(n, sizeof(PluginPanelItem)));
+    // Выделяем память через calloc, так как Far Manager API требует C-allocator
+    // для последующего освобождения через free()
+    auto* items = static_cast<PluginPanelItem*>(std::calloc(count, sizeof(PluginPanelItem)));
     if (!items) {
-        *pPanelItem = nullptr;
-        *pItemsNumber = 0;
         return FALSE;
     }
 
-    for (int i = 0; i < n; ++i) {
-        const std::wstring& display = (static_cast<std::size_t>(i) < data->displayNames.size())
-                                          ? data->displayNames[i]
-                                          : data->names[i];
-        items[i].FindData.lpwszFileName = dupW(display);
-        items[i].FindData.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
+    for (auto [idx, entry] : data->entries | std::ranges::views::enumerate) {
+        // idx имеет правильный беззнаковый тип, соответствующий размеру контейнера
+        items[idx].FindData.lpwszFileName = dupW(entry.display);
+        items[idx].FindData.dwFileAttributes = FILE_ATTRIBUTE_DIRECTORY;
     }
 
     *pPanelItem = items;
-    *pItemsNumber = n;
+    *pItemsNumber = static_cast<int>(count);
     return TRUE;
 }
 
-SHAREDSYMBOL void WINAPI EXP_NAME(FreeFindData)(HANDLE /*hPlugin*/, PluginPanelItem* pPanelItem,
-                                                int pItemsNumber) {
-    for (int i = 0; i < pItemsNumber; ++i) {
-        free(const_cast<wchar_t*>(pPanelItem[i].FindData.lpwszFileName));
+SHAREDSYMBOL void WINAPI EXP_NAME(FreeFindData)(HANDLE /*hPlugin*/, PluginPanelItem* pPanelItem, int pItemsNumber) {
+    if (!pPanelItem || pItemsNumber <= 0) {
+        return;
     }
-    free(pPanelItem);
+
+    // C++20/23 std::span: безопасно оборачиваем сырой указатель и размер.
+    // Так как Far API передает размер как знаковый int, кастим его к size_t.
+    auto itemsSpan = std::span(pPanelItem, static_cast<std::size_t>(pItemsNumber));
+
+    for (const auto& item : itemsSpan) {
+        std::free(const_cast<wchar_t*>(item.FindData.lpwszFileName));
+    }
+
+    std::free(pPanelItem);
 }
 
 SHAREDSYMBOL void WINAPI EXP_NAME(GetOpenPluginInfo)(HANDLE hPlugin, OpenPluginInfo* Info) {
@@ -158,66 +164,58 @@ SHAREDSYMBOL void WINAPI EXP_NAME(ClosePlugin)(HANDLE hPlugin) {
 
 SHAREDSYMBOL int WINAPI EXP_NAME(SetDirectory)(HANDLE hPlugin, const wchar_t* Dir, int /*OpMode*/) {
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
-    if (!data)
+    if (!data) {
         return FALSE;
-
-    std::wstring target;
-    for (size_t i = 0; i < data->displayNames.size(); ++i) {
-        if (data->displayNames[i] == Dir) {
-            target = data->paths[i];
-            break;
-        }
     }
-    if (target.empty()) {
-        for (size_t i = 0; i < data->names.size(); ++i) {
-            if (data->names[i] == Dir) {
-                target = data->paths[i];
-                break;
-            }
-        }
-    }
-    if (target.empty())
-        return FALSE;
 
-    Psi().Control(hPlugin, FCTL_CLOSEPLUGIN, 0, 0);
-    Psi().Control(PANEL_ACTIVE, FCTL_SETPANELDIR, 0, reinterpret_cast<LONG_PTR>(target.c_str()));
-    return TRUE;
+    if (auto target = data->pathForDisplay(Dir ? Dir : L""); target && !target->empty()) {
+        Psi().Control(hPlugin, FCTL_CLOSEPLUGIN, 0, 0);
+        Psi().Control(PANEL_ACTIVE, FCTL_SETPANELDIR, 0, reinterpret_cast<LONG_PTR>(target->c_str()));
+        return TRUE;
+    }
+    return FALSE;
 }
 
 SHAREDSYMBOL int WINAPI EXP_NAME(ProcessKey)(HANDLE hPlugin, int Key, unsigned int ControlState) {
-    if (Key != VK_DELETE || ControlState != 0)
+    if (Key != VK_DELETE || ControlState != 0) {
         return FALSE;
+    }
     auto* data = reinterpret_cast<nf::PanelData*>(hPlugin);
-    if (!data)
+    if (!data) {
         return FALSE;
+    }
 
     PanelInfo pi{};
-    if (!Psi().Control(hPlugin, FCTL_GETPANELINFO, 0, reinterpret_cast<LONG_PTR>(&pi)))
+    if (!Psi().Control(hPlugin, FCTL_GETPANELINFO, 0, reinterpret_cast<LONG_PTR>(&pi))) {
         return FALSE;
+    }
     const int idx = pi.CurrentItem;
-    if (idx < 0 || idx >= static_cast<int>(data->names.size()))
+    if (idx < 0 || idx >= static_cast<int>(data->entries.size())) {
         return FALSE;
+    }
 
-    const std::wstring name = data->names[idx];
-
-    if (!g_plugin)
+    const auto name = data->nameAt(static_cast<std::size_t>(idx));
+    if (!name) {
+        return FALSE;
+    }
+    if (!g_plugin) {
         return TRUE;
+    }
 
     const std::wstring title = nf::GetMsg(nf::MsgID::DeleteAliasTitle);
-    const std::wstring body = nf::FormatMsg(nf::MsgID::DeleteAliasQuestion, {name});
+    const std::wstring body = nf::FormatMsg(nf::MsgID::DeleteAliasQuestion, {*name});
     const wchar_t* items[] = {title.c_str(), body.c_str()};
     const int r = Psi().Message(Psi().ModuleNumber, FMSG_MB_YESNO, nullptr, items, 2, 0);
-
-    if (r != 0)
+    if (r != 0) {
         return TRUE;
+    }
 
-    if (auto res = g_plugin->aliases().remove(name); !res) {
+    if (auto res = g_plugin->aliases().remove(*name); !res) {
         nf::ErrorLogger::log(res.error());
         return TRUE;
     }
 
-    data->names.erase(data->names.begin() + idx);
-    data->paths.erase(data->paths.begin() + idx);
+    data->eraseAt(static_cast<std::size_t>(idx));
     Psi().Control(hPlugin, FCTL_UPDATEPANEL, 0, 0);
     Psi().Control(hPlugin, FCTL_REDRAWPANEL, 0, 0);
     return TRUE;

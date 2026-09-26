@@ -1,6 +1,7 @@
 add_library(nf MODULE
         main.cpp
         plugin.cpp
+        panel_data.cpp
         alias_manager.cpp
         plugin_context.cpp
         error_logger.cpp
