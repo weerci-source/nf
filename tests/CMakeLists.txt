@@ -1,6 +1,7 @@
 find_package(Catch2 3 REQUIRED)
 
 set(NF_TEST_SOURCES
+        test_cxx23_features.cpp       
         test_common.cpp
         test_alias_manager.cpp
         test_stubs.cpp
